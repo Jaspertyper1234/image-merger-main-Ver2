@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片合成工具</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            font-size: 16px;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #2c3e50;
+            text-align: center;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        button, select, input {
+            font-size: 16px;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #fff;
+        }
+        button {
+            background-color: #3498db;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #preview {
+            margin-top: 20px;
+            text-align: center;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        #preview img {
+            max-width: 200px;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin: 5px;
+            cursor: pointer;
+        }
+        .action-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+        #message {
+            margin-top: 20px;
+            text-align: center;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>图片合成工具</h1>
+        
+        <div class="input-group">
+            <label for="imageUpload">选择图片：</label>
+            <input type="file" id="imageUpload" multiple accept="image/*">
+            <button onclick="uploadImages()">上传图片</button>
+        </div>
+        
+        <div class="input-group">
+            <label for="compositeType">合成类型：</label>
+            <select id="compositeType">
+                <option value="2">2合1</option>
+                <option value="3">3合1</option>
+                <option value="4">4合1</option>
+                <option value="6">6合1</option>
+                <option value="9">9合1</option>
+            </select>
+        </div>
+        
+        <div class="input-group">
+            <label for="imageGap">图片间隔：</label>
+            <input type="number" id="imageGap" min="0" value="10">
+        </div>
+
+        <div class="input-group">
+            <label for="compositeInterval">合成间隔：</label>
+            <input type="number" id="compositeInterval" min="1" value="1">
+        </div>
+        
+        <button onclick="compositeImages()">合成图片</button>
+        
+        <div id="preview"></div>
+        
+        <div class="action-buttons">
+            <button onclick="downloadImage()">下载图片</button>
+            <button onclick="exportToExcel()">导出Excel</button>
+            <button onclick="exportToPDF()">导出PDF</button>
+            <button onclick="clearCompositedImages()">清除合成图片</button>
+        </div>
+        
+        <div id="downloadProgress" style="display: none;">
+            <progress id="progressBar" value="0" max="100"></progress>
+            <span id="progressText">0%</span>
+        </div>
+
+        <div id="message" style="text-align: center; margin-top: 20px; color: #2c3e50; font-weight: bold;"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.16.9/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.3.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+    <script>
+        let uploadedImages = [];
+        let compositedImageDataURLs = []; // 这个数组将存储所有合成的图片
+
+        function uploadImages() {
+            const input = document.getElementById('imageUpload');
+            const files = Array.from(input.files);
+            
+            // 按文件名排序
+            files.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+            
+            uploadedImages = []; // 清空之前上传的图片
+            
+            let loadedCount = 0;
+            const totalFiles = files.length;
+            
+            files.forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    uploadedImages[index] = e.target.result; // 保持排序顺序
+                    loadedCount++;
+                    if (loadedCount === totalFiles) {
+                        // 所有图片加载完成
+                        showMessage('图片上传成功！');
+                    }
+                }
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function compositeImages() {
+            console.log('开始合成图片');
+            const type = parseInt(document.getElementById('compositeType').value);
+            const gap = parseInt(document.getElementById('imageGap').value);
+            const interval = parseInt(document.getElementById('compositeInterval').value);
+            
+            console.log(`合成类型: ${type}, 图片间隔: ${gap}, 合成间隔: ${interval}`);
+            
+            if (uploadedImages.length < type) {
+                console.log(`图片数量不足，需要至少 ${type} 张图片`);
+                alert(`图片数量不足，请上传至少 ${type} 张图片！`);
+                return;
+            }
+            
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            const downloadProgress = document.getElementById('downloadProgress');
+            downloadProgress.style.display = 'block';
+
+            console.log('开始加载图片');
+            const images = await loadImages(uploadedImages);
+            console.log(`成功加载 ${images.length} 张图片`);
+
+            const { maxWidth, maxHeight } = getMaxDimensions(images);
+            console.log(`最大宽度: ${maxWidth}, 最大高度: ${maxHeight}`);
+
+            const { rows, cols } = getGridDimensions(type);
+            console.log(`网格尺寸: ${rows} 行 x ${cols} 列`);
+
+            compositedImageDataURLs = [];
+
+            const totalSteps = Math.floor(images.length / (type * interval));
+            const progressIncrement = 100 / totalSteps;
+
+            console.log(`开始合成，总步骤数: ${totalSteps}`);
+
+            for (let i = 0; i < images.length && compositedImageDataURLs.length < totalSteps; i += type * interval) {
+                console.log(`正在处理第 ${Math.floor(i / (type * interval)) + 1} 组图片`);
+                const compositeImages = images.slice(i, i + type);
+                if (compositeImages.length === type) {
+                    console.log(`合成 ${compositeImages.length} 张图片`);
+                    const compositedImageDataURL = createCompositeImage(compositeImages, maxWidth, maxHeight, rows, cols, gap);
+                    compositedImageDataURLs.push(compositedImageDataURL);
+                    console.log(`成功合成第 ${compositedImageDataURLs.length} 张图片`);
+                } else {
+                    console.log(`跳过不完整的组，只有 ${compositeImages.length} 张图片`);
+                    break;
+                }
+
+                updateProgress(progressBar, progressText, (compositedImageDataURLs.length * progressIncrement));
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+
+            console.log(`合成完成，共生成 ${compositedImageDataURLs.length} 张合成图片`);
+            displayPreview(compositedImageDataURLs);
+            downloadProgress.style.display = 'none';
+            showMessage('图片合成成功！');
+        }
+
+        function loadImages(imageSources) {
+            return Promise.all(imageSources.map(src => {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                    img.src = src;
+                });
+            }));
+        }
+
+        function getMaxDimensions(images) {
+            const maxWidth = Math.max(...images.map(img => img.width));
+            const maxHeight = Math.max(...images.map(img => img.height));
+            return { maxWidth, maxHeight };
+        }
+
+        function getGridDimensions(type) {
+            let rows, cols;
+            if (type <= 3) {
+                rows = 1;
+                cols = type;
+            } else if (type <= 4) {
+                rows = 2;
+                cols = 2;
+            } else if (type <= 6) {
+                rows = 2;
+                cols = 3;
+            } else if (type <= 9) {
+                rows = 3;
+                cols = 3;
+            }
+            return { rows, cols };
+        }
+
+        function createCompositeImage(images, maxWidth, maxHeight, rows, cols, gap) {
+            const compositeCanvas = document.createElement('canvas');
+            compositeCanvas.width = maxWidth * cols + gap * (cols - 1);
+            compositeCanvas.height = maxHeight * rows + gap * (rows - 1);
+            const compositeCtx = compositeCanvas.getContext('2d');
+
+            images.forEach((img, index) => {
+                const col = index % cols;
+                const row = Math.floor(index / cols);
+                const x = col * (maxWidth + gap);
+                const y = row * (maxHeight + gap);
+                compositeCtx.drawImage(img, x, y, maxWidth, maxHeight);
+            });
+
+            return compositeCanvas.toDataURL('image/jpeg', 0.8);
+        }
+
+        function updateProgress(progressBar, progressText, progress) {
+            progress = Math.min(Math.max(progress, 0), 100);
+            progressBar.value = progress;
+            progressText.textContent = `${Math.round(progress)}%`;
+        }
+
+        function displayPreview(compositedImageDataURLs) {
+            const preview = document.getElementById('preview');
+            preview.innerHTML = ''; // 清空之前的预览
+
+            compositedImageDataURLs.forEach((dataURL, index) => {
+                const img = document.createElement('img');
+                img.src = dataURL;
+                img.alt = `合成图片预览 ${index + 1}`;
+                img.title = "点击查看原始大小";
+                img.style.maxWidth = '200px';
+                img.style.margin = '5px';
+                img.addEventListener('click', function() {
+                    window.open(dataURL, '_blank');
+                });
+                preview.appendChild(img);
+            });
+        }
+
+        function showMessage(message) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.textContent = message;
+            setTimeout(() => {
+                messageDiv.textContent = '';
+            }, 3000);
+        }
+
+        async function downloadImage() {
+            if (!compositedImageDataURLs.length) {
+                alert('请先合成图片！');
+                return;
+            }
+
+            const zip = new JSZip();
+            const img = zip.folder("images");
+
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            const downloadProgress = document.getElementById('downloadProgress');
+            downloadProgress.style.display = 'block';
+
+            const totalSteps = compositedImageDataURLs.length + 1; // 加1是为了包括ZIP生成步骤
+            const progressIncrement = 100 / totalSteps;
+
+            for (let i = 0; i < compositedImageDataURLs.length; i++) {
+                const imageData = compositedImageDataURLs[i].split(',')[1];
+                img.file(`composited_image_${i+1}.png`, imageData, {base64: true});
+                
+                updateProgress(progressBar, progressText, (i + 1) * progressIncrement);
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+
+            const content = await zip.generateAsync({type:"blob"}, 
+                metadata => {
+                    const finalProgress = ((totalSteps - 1) + metadata.percent / 100) * progressIncrement;
+                    updateProgress(progressBar, progressText, finalProgress);
+                }
+            );
+
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(content);
+            link.download = 'composited_images.zip';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            updateProgress(progressBar, progressText, 100);
+
+            setTimeout(() => {
+                downloadProgress.style.display = 'none';
+            }, 1000);
+        }
+
+        function exportToExcel() {
+            if (!compositedImageDataURLs.length) {
+                alert('请先合成图片！');
+                return;
+            }
+
+            // 创建一个新的工作簿
+            const workbook = XLSX.utils.book_new();
+            
+            compositedImageDataURLs.forEach((dataURL, index) => {
+                // 为每张图片创建一个新的工作表
+                const worksheet = XLSX.utils.aoa_to_sheet([
+                    [`合成图片 ${index + 1}`],
+                    ['图片链接（请复制此链接到浏览器中查看）'],
+                    [dataURL]
+                ]);
+                
+                // 设置单元格的宽度和高度
+                const col_width = [{ wch: 100 }]; // 设置列宽
+                const row_height = { '0': 30, '1': 30, '2': 100 }; // 设置行高
+                worksheet['!cols'] = col_width;
+                worksheet['!rows'] = row_height;
+
+                // 设置单元格样式
+                worksheet['A1'] = { t: 's', v: `合成图片 ${index + 1}`, s: { font: { bold: true, sz: 14 } } };
+                worksheet['A2'] = { t: 's', v: '图片链接（请复制此链接到浏览器中查看）', s: { font: { italic: true } } };
+                worksheet['A3'] = { t: 's', v: dataURL, s: { alignment: { wrapText: true } } };
+
+                // 将工作表添加到工作簿
+                XLSX.utils.book_append_sheet(workbook, worksheet, `合成图片 ${index + 1}`);
+            });
+
+            // 生成Excel文件并下载
+            XLSX.writeFile(workbook, "composited_images.xlsx");
+        }
+
+
+        function exportToPDF() {
+            if (!compositedImageDataURLs.length) {
+                alert('请先合成图片！');
+                return;
+            }
+
+            // 创建一个新的jsPDF实例
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            let currentPage = 0;
+
+            function addImageToPDF() {
+                if (currentPage >= compositedImageDataURLs.length) {
+                    // 所有图片都已添加，保存PDF
+                    doc.save('composited_images.pdf');
+                    return;
+                }
+
+                const img = new Image();
+                img.src = compositedImageDataURLs[currentPage];
+                img.onload = function() {
+                    // 计算图片在PDF中的尺寸和位置
+                    const imgWidth = img.width;
+                    const imgHeight = img.height;
+                    const pdfWidth = doc.internal.pageSize.getWidth();
+                    const pdfHeight = doc.internal.pageSize.getHeight();
+                    const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+                    const width = imgWidth * ratio;
+                    const height = imgHeight * ratio;
+                    const x = (pdfWidth - width) / 2;
+                    const y = (pdfHeight - height) / 2;
+
+                    // 如果不是第一页，添加新页
+                    if (currentPage > 0) {
+                        doc.addPage();
+                    }
+
+                    // 将图片添加到PDF
+                    doc.addImage(compositedImageDataURLs[currentPage], 'PNG', x, y, width, height);
+
+                    currentPage++;
+                    addImageToPDF(); // 递归调用以添加下一张图片
+                };
+            }
+
+            addImageToPDF();
+        }
+
+        function clearCompositedImages() {
+            compositedImageDataURLs = []; // 清空合成图片数组
+            uploadedImages = []; // 清空上传的原始图片数组
+            const preview = document.getElementById('preview');
+            preview.innerHTML = ''; // 清空预览区域
+            
+            // 重置文件输入框
+            const imageUpload = document.getElementById('imageUpload');
+            imageUpload.value = '';
+            
+            // 清空进度条
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            progressBar.value = 0;
+            progressText.textContent = '0%';
+            
+            // 隐藏下载进度
+            const downloadProgress = document.getElementById('downloadProgress');
+            downloadProgress.style.display = 'none';
+            
+            showMessage('已清除所有图片和合成结果！');
+        }
+
+        // 添加事件监听器
+        document.getElementById('imageUpload').addEventListener('change', uploadImages);
+
+        // 为所有按钮添加点击事件监听器
+        document.querySelectorAll('button').forEach(button => {
+            button.addEventListener('click', function() {
+                switch(this.textContent) {
+                    case '上传图片':
+                        uploadImages();
+                        break;
+                    case '合成图片':
+                        compositeImages();
+                        break;
+                    case '下载图片':
+                        downloadImage();
+                        break;
+                    case '导出Excel':
+                        exportToExcel();
+                        break;
+                    case '导出PDF':
+                        exportToPDF();
+                        break;
+                    case '清除合成图片':
+                        clearCompositedImages();
+                        break;
+                }
+            });
+        });
+    </script>
+</body>
+</html>
